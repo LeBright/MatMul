@@ -113,7 +113,7 @@ int main(){
 		cudaMemcpy(answer_device, answer_ptr, sizeof(float) * Left_Row * Right_Col, cudaMemcpyHostToDevice);
 
 		int gridsize = ceil((float)Left_Row / 32) * ceil((float)Right_Col / 32);
-		MatMul << <gridsize, 1024,8192 >> > (left_device, right_device, answer_device, Left_Row * Left_Col, Left_Col, Right_Row * Right_Col, Right_Col,Left_Row*Right_Col);
+		MatMul << <gridsize, 1024 >> > (left_device, right_device, answer_device, Left_Row * Left_Col, Left_Col, Right_Row * Right_Col, Right_Col,Left_Row*Right_Col);
 		for (int i = 0; i < Left_Row; i++)
 		{
 			cudaMemcpy(answer_gpu.data() + i * Right_Col, answer_device + i * Right_Col, sizeof(float) * Right_Col, cudaMemcpyDeviceToHost);
