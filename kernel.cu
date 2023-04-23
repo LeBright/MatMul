@@ -6,13 +6,14 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <cublas_v2.h>
+#include <fstream>
 
 using namespace std;
 
-const unsigned int Left_Row = 12800;
-const unsigned int Left_Col = 12800;
-const unsigned int Right_Row = 12800;
-const unsigned int Right_Col = 12800;
+unsigned int Left_Row = 128;
+unsigned int Left_Col = 128;
+unsigned int Right_Row = 128;
+unsigned int Right_Col = 128;
 bool CPU = false;
 bool GPU = false;
 
@@ -221,69 +222,76 @@ int main() {
 
 	CPU = false;
 	GPU = true;
+	ofstream ofile("report.txt");
+	for (int i = 0; i < 8; i++) {
+		// Create matrices
+		MatrixFDD_Row left = Eigen::MatrixXf::Random(Left_Row, Left_Col);
+		MatrixFDD_Row right = Eigen::MatrixXf::Random(Right_Row, Right_Col);
+		MatrixFDD_Row answer_cpu = Eigen::MatrixXf::Zero(Left_Row, Right_Col);
+		MatrixFDD_Row answer_gpu = Eigen::MatrixXf::Zero(Left_Row, Right_Col);
+		cout << "The matrices have been created!" << endl;
 
-	// Create matrices
-	MatrixFDD_Row left = Eigen::MatrixXf::Random(Left_Row, Left_Col);
-	MatrixFDD_Row right = Eigen::MatrixXf::Random(Right_Row, Right_Col);
-	MatrixFDD_Row answer_cpu = Eigen::MatrixXf::Zero(Left_Row, Right_Col);
-	MatrixFDD_Row answer_gpu = Eigen::MatrixXf::Zero(Left_Row, Right_Col);
-	cout << "The matrices have been created!" << endl;
+		// CPU
+		if (CPU) {
+			DWORD start_CPU = GetTickCount();
 
-	// CPU
-	if (CPU) {
-		DWORD start_CPU = GetTickCount();
-
-		for (int i = 0; i < Left_Row; i++) {
-			for (int j = 0; j < Right_Col; j++) {
-				float temp = 0;
-				for (int k = 0; k < Left_Col; k++) {
-					temp += left(i, k) * right(k, j);
+			for (int i = 0; i < Left_Row; i++) {
+				for (int j = 0; j < Right_Col; j++) {
+					float temp = 0;
+					for (int k = 0; k < Left_Col; k++) {
+						temp += left(i, k) * right(k, j);
+					}
+					answer_cpu(i, j) = temp;
 				}
-				answer_cpu(i, j) = temp;
 			}
+
+			DWORD end_CPU = GetTickCount();
+			cout << "CPU time: " << end_CPU - start_CPU << endl;
 		}
 
-		DWORD end_CPU = GetTickCount();
-		cout << "CPU time: " << end_CPU - start_CPU << endl;
-	}
+		// GPU
+		if (GPU) {
 
-	// GPU
-	if (GPU) {
+			cudaEvent_t start, stop;
+			cudaEventCreate(&start);
+			cudaEventCreate(&stop);
 
-		cudaEvent_t start, stop;
-		cudaEventCreate(&start);
-		cudaEventCreate(&stop);
+			float* left_device;
+			float* right_device;
+			float* answer_device;
+			cudaMalloc((void**)&left_device, sizeof(float) * Left_Row * Left_Col);
+			cudaMalloc((void**)&right_device, sizeof(float) * Right_Row * Right_Col);
+			cudaMalloc((void**)&answer_device, sizeof(float) * Left_Row * Right_Col);
 
-		float* left_device;
-		float* right_device;
-		float* answer_device;
-		cudaMalloc((void**)&left_device, sizeof(float) * Left_Row * Left_Col);
-		cudaMalloc((void**)&right_device, sizeof(float) * Right_Row * Right_Col);
-		cudaMalloc((void**)&answer_device, sizeof(float) * Left_Row * Right_Col);
+			float* left_ptr = left.data();
+			cudaMemcpy(left_device, left_ptr, sizeof(float) * Left_Row * Left_Col, cudaMemcpyHostToDevice);
+			float* right_ptr = right.data();
+			cudaMemcpy(right_device, right_ptr, sizeof(float) * Right_Row * Right_Col, cudaMemcpyHostToDevice);
+			float* answer_ptr = answer_gpu.data();
+			cudaMemcpy(answer_device, answer_ptr, sizeof(float) * Left_Row * Right_Col, cudaMemcpyHostToDevice);
 
-		float* left_ptr = left.data();
-		cudaMemcpy(left_device, left_ptr, sizeof(float) * Left_Row * Left_Col, cudaMemcpyHostToDevice);
-		float* right_ptr = right.data();
-		cudaMemcpy(right_device, right_ptr, sizeof(float) * Right_Row * Right_Col, cudaMemcpyHostToDevice);
-		float* answer_ptr = answer_gpu.data();
-		cudaMemcpy(answer_device, answer_ptr, sizeof(float) * Left_Row * Right_Col, cudaMemcpyHostToDevice);
+			dim3 gridsize((Left_Row + 127) / 128, (Right_Col + 127) / 128);
 
-		dim3 gridsize((Left_Row + 127) / 128, (Right_Col + 127) / 128);
+			cudaEventRecord(start);
+			MatMul << <gridsize, 256 >> > (left_device, right_device, answer_device, Left_Row, Right_Col, Left_Col);
+			cudaEventRecord(stop);
+			cudaEventSynchronize(stop);
+			for (int i = 0; i < Left_Row; i++)
+			{
+				cudaMemcpy(answer_gpu.data() + i * Right_Col, answer_device + i * Right_Col, sizeof(float) * Right_Col, cudaMemcpyDeviceToHost);
+			}
 
-		cudaEventRecord(start);
-		MatMul << <gridsize, 256 >> > (left_device, right_device, answer_device, Left_Row, Right_Col, Left_Col);
-		cudaEventRecord(stop);
-		cudaEventSynchronize(stop);
-		for (int i = 0; i < Left_Row; i++)
-		{
-			cudaMemcpy(answer_gpu.data() + i * Right_Col, answer_device + i * Right_Col, sizeof(float) * Right_Col, cudaMemcpyDeviceToHost);
+			float time;
+			cudaEventElapsedTime(&time, start, stop);
+			cout << "it: " << i << endl;
+
+			ofile << "(" << Left_Row << ", " << Left_Col << ") * (" << Right_Row << ", " << Right_Col << ") gpu time: " << time << " ms" << endl;
 		}
-
-		float time;
-		cudaEventElapsedTime(&time, start, stop);
-		cout << "gpu time: " << time << " ms" << endl;
+		Left_Row *= 2;
+		Left_Col *= 2;
+		Right_Row *= 2;
+		Right_Col *= 2;
 	}
-
 	return 0;
 }
 
