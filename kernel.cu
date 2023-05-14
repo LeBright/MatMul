@@ -10,7 +10,7 @@
 
 using namespace std;
 
-// Tool for change float_to_float4
+// Tool for changing float to float4
 union float_float4 {
 	float4 f4;
 	struct {
@@ -35,7 +35,7 @@ __constant__ const unsigned int Num_threads_transpose = 256;
 // MatMul block and K 
 __constant__ const unsigned int Block_tile_mm_x = 128;
 __constant__ const unsigned int Block_tile_mm_y = 128;
-__constant__ const unsigned int K_tile = 16;
+__constant__ const unsigned int K_tile = 8;
 __constant__ const unsigned int Num_threads_matmul = 256;
 __constant__ const unsigned int Areg_num = 2;
 __constant__ const unsigned int Breg_num = 2;
@@ -110,7 +110,7 @@ __global__ void __launch_bounds__(256) MatMul(float* A, float* B, float4* C, uns
 	__shared__ float4 Asmem[K_tile][Block_tile_mm_x >> 2];
 	__shared__ float4 Bsmem[K_tile][Block_tile_mm_y >> 2];
 
-	// Tool for change 4f to f4
+	// Tool for changing 4f to f4
 	float_float4 Tool;
 
 	// Ptr
@@ -221,14 +221,11 @@ __global__ void __launch_bounds__(256) MatMul(float* A, float* B, float4* C, uns
 
 int main() {
 
-	//cudaDeviceProp prop;
-	//cudaGetDeviceProperties(&prop, 0);
-	//cout << prop.multiProcessorCount << endl;
-
 	CPU = false;
 	GPU = true;
 
-	while (Left_Col <= 12800) {
+	while (Left_Col <= 16384) {
+
 		// Create matrices
 		MatrixFDD_Row left = Eigen::MatrixXf::Random(Left_Row, Left_Col);
 		MatrixFDD_Row left_trans = Eigen::MatrixXf::Zero(Left_Col, Left_Row);
@@ -279,8 +276,6 @@ int main() {
 			float* answer_ptr = answer_gpu.data();
 			cudaMemcpy(answer_device, answer_ptr, sizeof(float) * Left_Row * Right_Col, cudaMemcpyHostToDevice);
 
-
-
 			dim3 gridsize_trans((Left_Row + Block_tile_t_x - 1) / Block_tile_t_x, (Left_Col + Block_tile_t_y - 1) / Block_tile_t_y);
 			dim3 gridsize_matmul((Left_Row + Block_tile_mm_x - 1) / Block_tile_mm_x, (Right_Col + Block_tile_mm_y - 1) / Block_tile_mm_y);
 			cudaEventRecord(start);
@@ -295,7 +290,7 @@ int main() {
 
 			float time;
 			cudaEventElapsedTime(&time, start, stop);
-			cout << "(" << Left_Row << "," << Left_Col << ")*(" << Right_Row << "," << Right_Col << ")  " << time << "ms" << endl;
+			cout << time << endl;
 			cudaFree(left_device);
 			cudaFree(left_trans_device);
 			cudaFree(right_device);
@@ -306,6 +301,6 @@ int main() {
 		Right_Row += 512;
 		Right_Col += 512;
 	}
+
 	return 0;
 }
-
